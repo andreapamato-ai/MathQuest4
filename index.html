@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Maths Kingdom â Year 4 Quest</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+
+// ============================================================
+// MATHS KINGDOM â Malta Year 4 Maths Quest
+// 7 worlds Ã 3 levels (Beginner â Princess â Battle Queen)
+// ============================================================
+
+const STORAGE_KEY = "maths-kingdom-save-v1";
+
+// Safe storage: localStorage may be unavailable (null) in sandboxed iframes.
+function storageGet(key) {
+  try { return window.localStorage ? window.localStorage.getItem(key) : null; } catch (e) { return null; }
+}
+function storageSet(key, val) {
+  try { if (window.localStorage) window.localStorage.setItem(key, val); } catch (e) {}
+}
+function storageRemove(key) {
+  try { if (window.localStorage) window.localStorage.removeItem(key); } catch (e) {}
+}
+
+const LEVELS = [
+  { id: "beginner", name: "Beginner", icon: "ð¡ï¸", reward: "ð", rewardName: "Crystal", rewardValue: 1 },
+  { id: "princess", name: "Princess", icon: "ð", reward: "ð", rewardName: "Ruby", rewardValue: 3 },
+  { id: "queen", name: "Battle Queen", icon: "âï¸", reward: "ð", rewardName: "Crown Jewel", rewardValue: 5 },
+];
+
+const PASS_MARK = 7; // out of 10
+
+const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function numQ(text, answer) {
+  return { text, answer: String(answer), type: "number" };
+}
+
+function mcq(text, answer, distractors) {
+  const options = shuffle([String(answer), ...distractors.map(String)]);
+  return { text, answer: String(answer), type: "mcq", options };
+}
+
+function mcqNames(text, answer, options) {
+  return { text, answer, type: "mcq", options: shuffle(options) };
+}
+
+// ---------------- QUESTION GENERATORS ----------------
+// d = 0 (beginner), 1 (princess), 2 (battle queen)
+// Each generator accepts an optional question type t; when omitted it picks one at random.
+// The Quiz uses a shuffled "bag" of types so every type appears before any repeat.
+
+const TYPE_COUNTS = { numbers: 7, addsub: 5, muldiv: 5, fracdec: 6, shape: 6, measure: 6, data: 4 };
+
+function typeBag(worldId, count) {
+  const total = TYPE_COUNTS[worldId] || 5;
+  const bag = [];
+  while (bag.length < count) {
+    const round = shuffle(Array.from({ length: total }, (_, i) => i + 1));
+    bag.push(...round);
+  }
+  return bag.slice(0, count);
+}
+
+const generators = {
+  // World 1: Number Castle â numbers to 10,000, place value, ordering
+  numbers(d, t = rnd(1, TYPE_COUNTS.numbers)) {
+    if (t === 1) {
+      const n = d === 0 ? rnd(100, 999) : d === 1 ? rnd(1000, 4999) : rnd(5000, 9999);
+      return numQ(`Write the number ${n.toLocaleString()} in numerals`, n);
+    }
+    if (t === 2) {
+      const n = d === 0 ? rnd(100, 999) : d === 1 ? rnd(1000, 4999) : rnd(5000, 9999);
+      const place = ["ones", "tens", "hundreds", "thousands"];
+      const idx = d === 0 ? rnd(1, 2) : rnd(1, 3);
+      const digit = String(n).padStart(4, "0")[3 - idx];
+      return numQ(`In the number ${n.toLocaleString()}, what is the digit in the ${place[idx]} place?`, digit);
+    }
+    if (t === 3) {
+      const a = rnd(100, d === 0 ? 999 : d === 1 ? 4999 : 9999);
+      const b = rnd(100, d === 0 ? 999 : d === 1 ? 4999 : 9999);
+      if (a === b) return generators.numbers(d);
+      const bigger = Math.max(a, b);
+      return numQ(`Which is bigger: ${a.toLocaleString()} or ${b.toLocaleString()}? Write the bigger number.`, bigger);
+    }
+    if (t === 4) {
+      const step = d === 0 ? 10 : d === 1 ? 100 : 1000;
+      const start = rnd(100, d === 2 ? 8000 : 500);
+      return numQ(`What number comes next: ${start.toLocaleString()}, ${start + step >= 1000 || d !== 0 ? (start + step).toLocaleString() : start + step} ?`, start + step);
+    }
+    if (t === 5) {
+      const n = d === 0 ? rnd(50, 500) : d === 1 ? rnd(500, 5000) : rnd(5000, 9999);
+      return numQ(`What is 1 more than ${n.toLocaleString()}?`, n + 1);
+    }
+    if (t === 6) {
+      const n = d === 0 ? rnd(50, 500) : d === 1 ? rnd(500, 5000) : rnd(5000, 9999);
+      return numQ(`What is 10 less than ${n.toLocaleString()}?`, n - 10);
+    }
+    const n = rnd(d === 0 ? 100 : 1000, d === 0 ? 999 : 9999);
+    return numQ(`Round ${n.toLocaleString()} to the nearest ${d === 0 ? "10" : "100"}.`, d === 0 ? Math.round(n / 10) * 10 : Math.round(n / 100) * 100);
+  },
+
+  // World 2: Castle of Sums â addition & subtraction
+  addsub(d, t = rnd(1, TYPE_COUNTS.addsub)) {
+    if (t === 1) {
+      const max = d === 0 ? 50 : d === 1 ? 500 : 5000;
+      const a = rnd(10, max), b = rnd(10, max);
+      return numQ(`${a.toLocaleString()} + ${b.toLocaleString()} = ?`, a + b);
+    }
+    if (t === 2) {
+      const max = d === 0 ? 50 : d === 1 ? 500 : 5000;
+      const a = rnd(20, max * 2), b = rnd(10, max);
+      return numQ(`${a.toLocaleString()} â ${b.toLocaleString()} = ?`, a - b);
+    }
+    if (t === 3) {
+      const a = rnd(11, d === 0 ? 20 : d === 1 ? 99 : 999);
+      const total = a + rnd(5, d === 0 ? 20 : 99);
+      return numQ(`I think of a number. I add ${a} and get ${total.toLocaleString()}. What is my number?`, total - a);
+    }
+    if (t === 4) {
+      const price = rnd(2, d === 0 ? 10 : d === 1 ? 50 : 200);
+      const paid = d === 0 ? 10 : d === 1 ? 100 : 500;
+      return numQ(`A shield costs â¬${price}. You pay with â¬${paid}. How much change do you get?`, paid - price);
+    }
+    const a = rnd(d === 0 ? 10 : 100, d === 0 ? 99 : 999);
+    const b = rnd(10, d === 0 ? 99 : 999);
+    return numQ(`Find the missing number: ${a} + ? = ${a + b}`, b);
+  },
+
+  // World 3: Knights' Tavern â multiplication & division
+  muldiv(d, t = rnd(1, TYPE_COUNTS.muldiv)) {
+    const tableMax = d === 0 ? 5 : d === 1 ? 10 : 12;
+    if (t === 1) {
+      const a = rnd(2, tableMax), b = rnd(2, tableMax);
+      return numQ(`${a} Ã ${b} = ?`, a * b);
+    }
+    if (t === 2) {
+      const a = rnd(2, tableMax), b = rnd(2, tableMax);
+      return numQ(`${a * b} Ã· ${a} = ?`, b);
+    }
+    if (t === 3) {
+      const a = rnd(2, tableMax), knights = rnd(3, 6);
+      return numQ(`${knights} knights each get ${a} gold coins. How many coins altogether?`, knights * a);
+    }
+    if (t === 4) {
+      const a = rnd(2, tableMax), b = rnd(2, tableMax);
+      const hidden = d === 0 ? b : d === 1 ? rnd(2, 9) : rnd(10, 99);
+      return numQ(`${a} Ã ? = ${a * hidden}`, hidden);
+    }
+    const bags = rnd(2, d === 0 ? 5 : 12);
+    const per = rnd(2, tableMax);
+    return numQ(`${bags * per} gold coins are shared equally among ${bags} dragons. How many coins each?`, per);
+  },
+
+  // World 4: Enchanted Forest â fractions & decimals
+  fracdec(d, t = rnd(1, TYPE_COUNTS.fracdec)) {
+    if (t === 1) {
+      const den = pick([2, 4, 5, 10]);
+      const whole = rnd(2, d === 0 ? 5 : 9);
+      const num = den / 2;
+      return numQ(`The princess eats ${whole} whole cakes and half a cake. Write the total as a decimal number of cakes. (e.g. 2.5)`, whole + num / den);
+    }
+    if (t === 2) {
+      const den = pick([2, 4, 5, 10]);
+      const num = rnd(1, den - 1);
+      const total = den;
+      return numQ(`A pie is cut into ${total} equal slices. The princess eats ${num} slices. What fraction of the pie is left? Write as a/b with a and b separated by a slash, e.g. 3/4. (Simplify if you can!)`, `${total - num}/${total}`);
+    }
+    if (t === 3) {
+      const pairs = [["1/2", "0.5"], ["1/4", "0.25"], ["3/4", "0.75"], ["1/10", "0.1"], ["1/2", "0.50"]];
+      const [f, dec] = pick(pairs);
+      return numQ(`Write ${f} as a decimal. (Enter digits only, e.g. 0.5)`, dec);
+    }
+    if (t === 4) {
+      const den = pick([2, 4, 5, 8, 10]);
+      const a = rnd(1, den - 1), b = rnd(1, den - 1);
+      const ansN = a + b >= den ? a + b - den : a + b;
+      const carry = a + b >= den ? 1 : 0;
+      return numQ(`${a}/${den} + ${b}/${den} = ? Write the answer as a fraction (a/b) â or if it makes a whole, write w a/b like 1 1/2. ${carry ? "Careful: it may be more than one whole!" : ""} Format: if answer is a fraction write a/b.`, `${carry ? "1 " : ""}${ansN}/${den}`);
+    }
+    if (t === 5) {
+      const den = pick([2, 4, 10, 100]);
+      const val = den === 100 ? rnd(1, 99) / 100 : den === 10 ? rnd(1, 9) / 10 : rnd(1, den - 1) / den;
+      return mcq(`Which decimal is equal to ${Math.round(val * den)}/${den}?`, val.toFixed(den === 100 ? 2 : den === 10 ? 1 : 2).replace(/0+$/, "").replace(/\.$/, ".0"), [val.toFixed(1), String(val * 2), (val + 0.5).toFixed(1)]);
+    }
+    const den = pick([3, 5, 6, 8]);
+    const num = rnd(1, den - 1);
+    return mcqNames(`Which picture shows ${num}/${den} of the jewels shaded? (Choose the correct fraction)`, `${num}/${den}`, [`${num}/${den}`, `${den - num}/${den}`, `${num}/${den + 1}`, `1/${den}`]);
+  },
+
+  // World 5: Dragon's Lair â shape, space, angle
+  shape(d, t = rnd(1, TYPE_COUNTS.shape)) {
+    if (t === 1) {
+      const shapes = [
+        ["triangle", 3], ["square", 4], ["rectangle", 4], ["pentagon", 5], ["hexagon", 6], ["octagon", 8],
+      ];
+      const s = pick(d === 0 ? shapes.slice(0, 3) : shapes);
+      return numQ(`How many sides does a ${s[0]} have?`, s[1]);
+    }
+    if (t === 2) {
+      return mcqNames("Which shape has 3 sides and 3 corners?", "triangle", ["triangle", "square", "circle", "hexagon"]);
+    }
+    if (t === 3) {
+      const angles = d === 0 ? [["A right angle", 90]] : [["A right angle", 90], ["Half a right angle", 45], ["A straight angle", 180], ["A full turn", 360], ["Three right angles", 270]];
+      const [name, deg] = pick(angles);
+      return numQ(`${name} is how many degrees?`, deg);
+    }
+    if (t === 4) {
+      const opts = [["A square", "4 equal sides"], ["A rectangle", "4 sides, opposite sides equal"], ["A triangle", "3 sides"], ["A circle", "no straight sides"]];
+      const s = pick(opts);
+      return mcqNames(`Which shape am I? I have ${s[1]}.`, s[0], opts.map((o) => o[0]));
+    }
+    if (t === 5) {
+      const lines = d === 0 ? 1 : rnd(1, 2);
+      const sym = { 1: 1, 2: pick([2, 4]) };
+      return mcqNames(`How many lines of symmetry does ${lines === 1 ? "a square" : "a rectangle"} have?`, lines === 1 ? "4" : "2", ["1", "2", "4", "0"]);
+    }
+    const faces = pick(d === 0 ? ["cube", "cuboid"] : ["cube", "cuboid", "cylinder", "square pyramid", "triangular prism"]);
+    const faceCount = { cube: 6, cuboid: 6, cylinder: 3, "square pyramid": 5, "triangular prism": 5 };
+    return numQ(`How many faces does a ${faces} have?`, faceCount[faces]);
+  },
+
+  // World 6: Wizard's Tower â measurement (length, mass, time, money)
+  measure(d, t = rnd(1, TYPE_COUNTS.measure)) {
+    if (t === 1) {
+      const cm = rnd(d === 0 ? 50 : 200, d === 0 ? 200 : 900);
+      return numQ(`A dragon is ${cm} cm tall. How many metres is that? (1 m = 100 cm)`, cm / 100);
+    }
+    if (t === 2) {
+      const g = rnd(100, 900);
+      return numQ(`${g} g = ? kg (write as a decimal, e.g. 0.5)`, (g / 1000).toFixed(3).replace(/0+$/, "").replace(/\.$/, ".0"));
+    }
+    if (t === 3) {
+      const h = rnd(1, 10), m = rnd(10, 59);
+      const later = rnd(15, d === 0 ? 30 : 90);
+      let tm = m + later, th = h + Math.floor(tm / 60);
+      tm = tm % 60;
+      return numQ(`The potion brews from ${h}:${String(m).padStart(2, "0")} for ${later} minutes. What time does it finish? (24h, write like 3:45)`, `${th}:${String(tm).padStart(2, "0")}`);
+    }
+    if (t === 4) {
+      const items = [["castle", 20], ["carriage", 3], ["dragon", 12], ["sword", 1], ["tower", 15], ["horse", 2]];
+      const [item, m] = pick(items);
+      return numQ(`${item.charAt(0).toUpperCase() + item.slice(1)} length: ${m} metres = ? centimetres`, m * 100);
+    }
+    if (t === 5) {
+      const kg = rnd(1, d === 0 ? 9 : 12);
+      return numQ(`${kg} kilograms = ? grams`, kg * 1000);
+    }
+    const a = rnd(2, 20), b = rnd(2, 20);
+    return numQ(`A crown costs â¬${a}. A cape costs â¬${b}. How much do both cost together? (Enter just the number)`, a + b);
+  },
+
+  // World 7: Royal Library â data handling & charts
+  data(d, t = rnd(1, TYPE_COUNTS.data)) {
+    const cats = ["Jewels", "Swords", "Shields", "Crowns", "Potions"];
+    const n = d === 0 ? 3 : 4;
+    const data = cats.slice(0, n).map((c) => [c, rnd(2, d === 0 ? 10 : 20)]);
+    if (t === 1) {
+      const [maxC, maxV] = data.reduce((m, x) => (x[1] > m[1] ? x : m));
+      return numQ(`The royal chart shows: ${data.map(([c, v]) => `${c} = ${v}`).join(", ")}. Which item is the most popular, and how many are there? Write only the number.`, maxV);
+    }
+    if (t === 2) {
+      const total = data.reduce((s, x) => s + x[1], 0);
+      return numQ(`The chart shows: ${data.map(([c, v]) => `${c} = ${v}`).join(", ")}. What is the total of all items?`, total);
+    }
+    if (t === 3) {
+      const sorted = [...data].sort((x, y) => y[1] - x[1]);
+      const [minC, minV] = data.reduce((m, x) => (x[1] < m[1] ? x : m));
+      return numQ(`From the chart: ${data.map(([c, v]) => `${c} = ${v}`).join(", ")}. How many of the LEAST popular item are there?`, minV);
+    }
+    const [a, b] = data;
+    return numQ(`${a[0]}: ${a[1]} were counted. ${b[0]}: ${b[1]} were counted. How many MORE ${a[0].toLowerCase()} than ${b[0].toLowerCase()}?`, Math.abs(a[1] - b[1]));
+  },
+};
+
+const WORLDS = [
+  {
+    id: "numbers", name: "Number Castle", icon: "ð°", color: "from-amber-200 to-amber-400",
+    blurb: "Numbers up to 10,000, place value & rounding",
+  },
+  { id: "addsub", name: "Castle of Sums", icon: "âï¸", color: "from-sky-200 to-sky-400", blurb: "Addition & subtraction quests" },
+  { id: "muldiv", name: "Knights' Tavern", icon: "ðº", color: "from-lime-200 to-lime-400", blurb: "Times tables & sharing gold" },
+  { id: "fracdec", name: "Enchanted Forest", icon: "ð³", color: "from-emerald-200 to-emerald-400", blurb: "Fractions & decimals magic" },
+  { id: "shape", name: "Dragon's Lair", icon: "ð", color: "from-rose-200 to-rose-400", blurb: "Shapes, angles & symmetry" },
+  { id: "measure", name: "Wizard's Tower", icon: "ð§", color: "from-violet-200 to-violet-400", blurb: "Length, mass, time & money" },
+  { id: "data", name: "Royal Library", icon: "ð", color: "from-cyan-200 to-cyan-400", blurb: "Charts, tallies & data" },
+];
+
+function defaultSave() {
+  const progress = {};
+  WORLDS.forEach((w) => {
+    progress[w.id] = { beginner: false, princess: false, queen: false };
+  });
+  return { jewels: 0, crowns: 0, progress };
+}
+
+function loadSave() {
+  try {
+    const raw = storageGet(STORAGE_KEY);
+    if (raw) return { ...defaultSave(), ...JSON.parse(raw) };
+  } catch (e) {}
+  return defaultSave();
+}
+
+function isUnlocked(save, worldId, levelIdx) {
+  if (levelIdx === 0) return true;
+  const prev = LEVELS[levelIdx - 1].id;
+  return save.progress[worldId][prev];
+}
+
+// ---------------- GAME SCREEN ----------------
+
+function Quiz({ world, levelIdx, save, onComplete, onExit }) {
+  const level = LEVELS[levelIdx];
+  const questions = useMemo(() => {
+    const bag = typeBag(world.id, 10);
+    return bag.map((t) => generators[world.id](levelIdx, t));
+  }, [world.id, levelIdx]);
+  const [idx, setIdx] = useState(0);
+  const [score, setScore] = useState(0);
+  const [input, setInput] = useState("");
+  const [feedback, setFeedback] = useState(null); // null | "correct" | "wrong"
+  const [finished, setFinished] = useState(false);
+  const submittedRef = useRef(null);
+
+  const q = questions[idx];
+
+  function submit(val) {
+    submittedRef.current = val;
+    const v = String(val).trim().replace(/\s+/g, " ");
+    const correct = v.toLowerCase() === q.answer.toLowerCase().trim() ||
+      (Number(v) === Number(q.answer) && v !== "" && !isNaN(Number(v)) && !isNaN(Number(q.answer)));
+    if (correct) setScore((s) => s + 1);
+    setFeedback(correct ? "correct" : "wrong");
+  }
+
+  function next() {
+    setFeedback(null);
+    setInput("");
+    if (idx === 9) {
+      setFinished(true);
+    } else {
+      setIdx((i) => i + 1);
+    }
+  }
+
+  const passed = score >= PASS_MARK;
+
+  function finish() {
+    if (passed) onComplete(levelIdx, level.rewardValue, level.id === "queen" ? 1 : 0);
+    onExit();
+  }
+
+  if (finished) {
+    return (
+      <div className="max-w-lg mx-auto bg-[#fdf6e3] rounded-3xl border-4 border-[#8b5a2b] p-8 text-center shadow-2xl">
+        <div className="text-7xl mb-3">{passed ? (level.id === "queen" ? "ðâï¸" : level.id === "princess" ? "ð" : "ð¡ï¸") : "ðº"}</div>
+        <h2 className="text-3xl font-bold text-[#5b3a1e] mb-2">
+          {passed ? "Victory!" : "The quest continues..."}
+        </h2>
+        <p className="text-lg text-[#7a5230] mb-1">
+          You scored <b>{score}/10</b> in <b>{level.name}</b> at {world.icon} {world.name}.
+        </p>
+        {passed ? (
+          <p className="text-lg text-[#b8860b] mb-4">
+            You earned {level.reward} {level.rewardValue} {level.rewardName} {level.rewardValue > 1 ? "(s)" : ""}! ð
+          </p>
+        ) : (
+          <p className="text-lg text-[#7a5230] mb-4">You need {PASS_MARK}/10 to win. Try again, brave knight!</p>
+        )}
+        <button
+          onClick={finish}
+          className="px-6 py-3 bg-[#8b5a2b] text-amber-100 font-bold rounded-xl hover:bg-[#6e4620] transition text-lg"
+        >
+          {passed ? "Claim Reward ð" : "Back to the Kingdom"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <div className="flex items-center justify-between mb-3">
+        <button onClick={onExit} className="px-4 py-2 bg-[#8b5a2b] text-amber-100 rounded-lg font-bold hover:bg-[#6e4620] transition">
+          â Leave quest
+        </button>
+        <div className="text-[#5b3a1e] font-bold">
+          {world.icon} {world.name} Â· {level.icon} {level.name}
+        </div>
+        <div className="font-bold text-[#5b3a1e]">
+          Q{idx + 1}/10 Â· â­ {score}
+        </div>
+      </div>
+
+      <div className="h-3 bg-[#e8d5b5] rounded-full overflow-hidden mb-4 border border-[#c9a875]">
+        <div className="h-full bg-gradient-to-r from-amber-400 to-amber-600 transition-all" style={{ width: `${((idx + (feedback ? 1 : 0)) / 10) * 100}%` }} />
+      </div>
+
+      <div className="bg-[#fdf6e3] rounded-3xl border-4 border-[#8b5a2b] p-8 shadow-2xl">
+        <p className="text-2xl font-bold text-[#5b3a1e] mb-6 leading-relaxed">{q.text}</p>
+
+        {q.type === "mcq" ? (
+          <div className="grid grid-cols-2 gap-3">
+            {q.options.map((opt, i) => (
+              <button
+                key={i}
+                disabled={!!feedback}
+                onClick={() => submit(opt)}
+                className={`px-4 py-4 rounded-xl font-bold text-xl border-3 transition
+                  ${feedback === null ? "bg-amber-100 border-[#c9a875] hover:bg-amber-200 hover:scale-[1.02]" :
+                  String(q.answer) === String(opt) && (feedback === "correct" || feedback === "wrong") ? "bg-green-200 border-green-600" :
+                  feedback === "wrong" && String(opt) === String(submittedRef.current) ? "bg-red-200 border-red-600" :
+                  "bg-amber-50 border-[#c9a875] opacity-60"}`}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => { e.preventDefault(); if (!feedback) submit(input); }}
+            className="flex items-center justify-center gap-3 mx-auto"
+            style={{ maxWidth: 380 }}
+          >
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              disabled={!!feedback}
+              placeholder="Type your answer..."
+              inputMode="decimal"
+              autoComplete="off"
+              className="w-40 px-5 py-3.5 text-xl text-center rounded-xl border-3 border-[#c9a875] bg-white shadow-inner focus:outline-none focus:border-[#8b5a2b] focus:ring-4 focus:ring-amber-200/60 disabled:opacity-70"
+            />
+            <button type="submit" disabled={!!feedback} className="px-6 py-3 bg-[#8b5a2b] text-amber-100 font-bold rounded-xl hover:bg-[#6e4620] active:scale-95 transition text-lg shadow-md disabled:opacity-50">
+              Enter âï¸
+            </button>
+          </form>
+        )}
+
+        {feedback && (
+          <div className="mt-6 text-center">
+            <p className={`text-2xl font-bold mb-3 ${feedback === "correct" ? "text-green-700" : "text-red-700"}`}>
+              {feedback === "correct" ? "â¨ Correct! Well done!" : `ð Not quite. The answer is ${q.answer}`}
+            </p>
+            <button onClick={next} className="px-6 py-3 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition text-lg">
+              {idx === 9 ? "See Results ð" : "Next Question â"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------- MAIN APP ----------------
+
+function App() {
+  const [save, setSave] = useState(loadSave);
+  const [screen, setScreen] = useState({ view: "map" }); // {view:"map"} | {view:"quiz", worldId, levelIdx}
+
+  useEffect(() => {
+    storageSet(STORAGE_KEY, JSON.stringify(save));
+  }, [save]);
+
+  function completeLevel(levelIdx, rewardValue, crown) {
+    setSave((s) => {
+      const world = screen.worldId;
+      const progress = { ...s.progress, [world]: { ...s.progress[world], [LEVELS[levelIdx].id]: true } };
+      return { ...s, jewels: s.jewels + rewardValue, crowns: s.crowns + crown, progress };
+    });
+    setScreen({ view: "map" });
+  }
+
+  if (screen.view === "quiz") {
+    const world = WORLDS.find((w) => w.id === screen.worldId);
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-sky-300 via-sky-200 to-amber-100 p-4">
+        <Quiz
+          key={`${screen.worldId}-${screen.levelIdx}`}
+          world={world}
+          levelIdx={screen.levelIdx}
+          save={save}
+          onComplete={completeLevel}
+          onExit={() => setScreen({ view: "map" })}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-sky-300 via-sky-200 to-amber-100 p-4 md:p-8">
+      {/* Header */}
+      <header className="max-w-5xl mx-auto mb-6">
+        <div className="bg-[#fdf6e3] rounded-3xl border-4 border-[#8b5a2b] p-5 shadow-xl flex flex-col md:flex-row items-center justify-between gap-3">
+          <h1 className="text-3xl font-black text-[#5b3a1e]">ð° Maths Kingdom</h1>
+          <p className="text-[#7a5230] font-semibold">Malta Year 4 Quest Â· for brave princesses</p>
+          <div className="flex items-center gap-4">
+            <span className="text-xl font-bold text-[#b8860b]">ð {save.jewels} jewels</span>
+            <span className="text-xl font-bold text-[#5b3a1e]">ð {save.crowns} {save.crowns === 1 ? "crown" : "crowns"}</span>
+          </div>
+        </div>
+      </header>
+
+      {/* World map */}
+      <div className="max-w-5xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        {WORLDS.map((w) => {
+          const p = save.progress[w.id];
+          const done = Object.values(p).filter(Boolean).length;
+          return (
+            <div key={w.id} className={`bg-gradient-to-b ${w.color} rounded-3xl border-4 border-[#8b5a2b] p-5 shadow-xl`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-5xl">{w.icon}</span>
+                <span className="text-2xl">{done === 3 ? "ðâ¨" : done > 0 ? "ð".repeat(done) : "ð«ï¸"}</span>
+              </div>
+              <h2 className="text-xl font-black text-[#3d2817]">{w.name}</h2>
+              <p className="text-sm text-[#5b3a1e] mb-3 italic">{w.blurb}</p>
+
+              <div className="space-y-2">
+                {LEVELS.map((lvl, li) => {
+                  const unlocked = isUnlocked(save, w.id, li);
+                  const completed = p[lvl.id];
+                  return (
+                    <button
+                      key={lvl.id}
+                      disabled={!unlocked}
+                      onClick={() => setScreen({ view: "quiz", worldId: w.id, levelIdx: li })}
+                      className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl font-bold border-2 transition
+                        ${completed ? "bg-green-200 border-green-600 text-green-900" :
+                        unlocked ? "bg-[#fdf6e3] border-[#c9a875] text-[#5b3a1e] hover:scale-[1.02] hover:border-[#8b5a2b]" :
+                        "bg-gray-200 border-gray-400 text-gray-500 cursor-not-allowed"}`}
+                    >
+                      <span>{lvl.icon} {lvl.name}</span>
+                      <span className="text-sm">
+                        {completed ? "â Won" : unlocked ? `${lvl.reward} +${lvl.rewardValue}` : "ð Locked"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <footer className="max-w-5xl mx-auto mt-8 text-center text-[#5b3a1e] text-sm font-semibold">
+        ðï¸ Unlock Princess by winning Beginner Â· Unlock Battle Queen by winning Princess
+        <br />
+        <button
+          onClick={() => { if (confirm("Reset all progress and jewels?")) { storageRemove(STORAGE_KEY); setSave(defaultSave()); } }}
+          className="mt-3 px-4 py-2 bg-[#c9a875] text-[#3d2817] rounded-lg hover:bg-[#b8955f] transition text-xs"
+        >
+          Reset progress
+        </button>
+      </footer>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
